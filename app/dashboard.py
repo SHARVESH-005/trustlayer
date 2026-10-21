@@ -62,7 +62,7 @@ with st.sidebar:
     st.divider()
     if st.button("Reset demo (~1 min)", width="stretch"):
         with st.spinner("Rebuilding schemas, publishing history, learning baselines..."):
-            create_all(conn(), reset=True)
+            create_all(conn(), reset=True, freshness_sla_minutes=120)  # pauses while presenting don't count
             pipeline.backfill(conn())
             baseline.learn(conn())
         st.session_state.pop("outcome", None)

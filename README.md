@@ -87,6 +87,16 @@ NYC TLC open data (Parquet)
    python scripts/test_connection.py
    ```
 
+## Quick start
+
+```bash
+python demo.py                      # loads data if needed, rebuilds, replays 12 h, opens the dashboard
+python demo.py --break unit_change  # same, plus one injected failure with its incident report
+```
+
+Full install, run guide and troubleshooting: **[DEPLOY.md](DEPLOY.md)**.
+Demo video script: [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md).
+
 ## Usage
 
 ```bash
