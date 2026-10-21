@@ -1,56 +1,127 @@
 # TrustLayer
 
-**Catch broken data pipelines before the business sees a wrong dashboard.**
-Built on **Exasol Personal** for ExaThon India 2026 — Track 04: *The Work Behind the Work*.
+**Stop broken data before it reaches a dashboard, show exactly who would have been
+affected, and explain it in plain English: with every check running inside Exasol.**
+
+Built on **Exasol Personal** for ExaThon India 2026, Track 04: *The Work Behind the Work*.
 
 ## Problem
 
 Data teams usually learn a pipeline failed overnight when a business user complains
-about a dashboard. By then trust in the data is already lost. Checks live in scattered
-scripts, alerts are missing, and nobody can say whether a table is safe to use.
+about a wrong number. By then the bad data is already in every report built on it, and
+trust is gone. Typical monitoring only *alerts* after the fact; it does not stop the
+damage, and it cannot say which dashboards were hit.
 
 ## Solution
 
-TrustLayer runs data-reliability checks **inside Exasol** and turns them into:
+Every hourly batch lands in a **staging** area first. TrustLayer checks it **inside
+Exasol** against what normal looks like for that hour, then either **publishes** it to
+the curated tables that dashboards read, or **quarantines** it and opens an incident.
 
-- **Alerts** — stale tables, missing/duplicate loads, null spikes, schema drift
-- **Trust scores** — a 0–100 score per table, shown next to dashboards
-- **Cost & usage view** — from Exasol's own statistics tables
+| Problem on the track card | What TrustLayer does |
+|---|---|
+| Pipelines that fail overnight without warning | Learned-baseline checks on every batch; incidents opened automatically |
+| Dashboards the business no longer trusts | Bad batches are blocked before dashboards see them; a live 0–100 trust score per table |
+| Data requests that queue for weeks | *(planned)* plain-English questions answered with SQL on Exasol |
+| Platform cost growing faster than usage | *(planned)* waste report from Exasol's own statistics |
+
+### What makes it different
+
+- **Quarantine gate, not just alerts.** Dashboards only read `CURATED`, so a bad batch never reaches them.
+- **Learned, adaptive baselines.** A Python UDF *inside Exasol* learns each hour of the week
+  with robust statistics (median and MAD), so one holiday or outage in the history does not skew it.
+  Expected volume follows the recent traffic level, so seasonal growth is absorbed while a sudden
+  collapse still fails.
+- **Alerts need two kinds of evidence:** a change must be statistically unusual *and* large enough to matter.
+- **Blast radius from Exasol's dependency catalog** (`EXA_DBA_DEPENDENCIES`): every incident names
+  the downstream views and dashboards (and owners) that were protected.
+- **Honest trust score.** Blocking bad data keeps dashboards correct but makes them fall behind;
+  the score says so (quality of the last published batch minus a staleness/backlog penalty).
 
 ## Architecture
 
 ```
-NYC TLC open data → Python ingest (pyexasol, with failure injection)
-  → Exasol Personal: RAW / CURATED / TRUSTLAYER schemas
-      ├─ SQL + Python UDF checks → TRUSTLAYER.CHECK_RESULTS
-      └─ EXA_STATISTICS → usage / cost
-  → Scheduler → webhook alerts
-  → Streamlit dashboard
+NYC TLC open data (Parquet)
+  └─ ingest/load_nyc_taxi.py ──────────────► RAW.YELLOW_TRIPS        (9.5M rows, Jan–Mar 2024)
+                                                  │ hourly batch (+ optional failure injection)
+                                                  ▼
+                                            STAGE.YELLOW_TRIPS
+                                                  │ checks in Exasol: volume, distribution,
+                                                  │ completeness, schema drift, uniqueness, validity
+                                                  │ vs TRUSTLAYER.BASELINE (Python UDF)
+                                    pass ┌────────┴────────┐ fail
+                                         ▼                 ▼
+                              CURATED.YELLOW_TRIPS   QUARANTINE.YELLOW_TRIPS + TRUSTLAYER.INCIDENTS
+                                         │
+                       MART views ───────┴──► dashboards (Executive KPIs, Daily Revenue, ...)
+                       TRUSTLAYER.TRUST_SCORES, BATCH_HEALTH, CHECK_RESULTS, LOAD_LOG
 ```
 
 ## Setup
 
-1. Install **Exasol Personal**: <https://www.exasol.com/developers/>
-   (or on AWS/Azure: <https://github.com/exasol/exasol-personal>).
-2. Install Python deps:
+1. **Install Exasol Personal** (<https://www.exasol.com/developers/>). On Windows use WSL (Ubuntu):
+   ```bash
+   curl https://downloads.exasol.com/exasol-personal/installer.sh | sh
+   sudo apt install -y podman
+   exasol install local
+   exasol slc install PYTHON3     # Python runtime for the in-database baseline UDF
+   exasol info                    # connection details
+   ```
+   AWS/Azure deployment: <https://github.com/exasol/exasol-personal>.
+2. **Python environment** (3.12+):
    ```bash
    python -m venv .venv
-   .venv\Scripts\activate        # Linux/WSL: source .venv/bin/activate
-   pip install -r requirements.txt
+   .venv\Scripts\activate          # Linux/WSL: source .venv/bin/activate
+   pip install -r requirements-dev.txt
    ```
-3. Copy `.env.example` to `.env` and fill in your Exasol connection details.
-4. Test the connection:
+3. **Connection:** copy `.env.example` to `.env` and fill in host, port and password from `exasol info`.
+   Then check it:
    ```bash
    python scripts/test_connection.py
-   ```
-5. Create schemas and load data:
-   ```bash
-   python ingest/load_nyc_taxi.py --months 2024-01 2024-02 2024-03
    ```
 
 ## Usage
 
-_Coming in Day 2–3: checks, scheduler, alerts, dashboard._
+```bash
+# Land Jan–Mar 2024 NYC taxi trips in RAW (~150 MB download, ~6 min load)
+python ingest/load_nyc_taxi.py --reset-raw
+
+# Create pipeline schemas, publish history up to 2024-03-04, learn baselines
+python -m trustlayer.cli setup --reset
+python -m trustlayer.cli backfill
+
+# Run the pipeline hour by hour
+python -m trustlayer.cli replay --hours 24
+python -m trustlayer.cli run-batch --chaos duplicates    # inject a failure
+python -m trustlayer.cli status                          # trust score + recent batches
+python -m trustlayer.cli affected                        # downstream views and dashboards
+```
+
+### Failure scenarios (`--chaos`)
+
+| Scenario | Simulates | Caught by |
+|---|---|---|
+| `duplicates` | a retried job re-sends part of a batch | uniqueness |
+| `volume_drop` | source export cut off partway | volume |
+| `empty` | job ran but delivered nothing | volume |
+| `null_spike` | partner API returns blanks | completeness |
+| `column_dropped` | upstream renamed a column | schema drift |
+| `bad_values` | refund logic flipped fare signs | validity, distribution |
+| `unit_change` | amounts switched from dollars to cents | distribution |
+
+## Results so far (Exasol Personal on a laptop, 3.7 GB WSL)
+
+- 9.55M rows landed; 6.3M rows of history published in ~40 s; baselines learned by the UDF in ~10 s.
+- 96 consecutive real hourly batches: **0 false quarantines**. Warnings flagged a genuine upstream
+  change: missing passenger counts rose from ~5% to 20–28% on some March 2024 evenings.
+- All 7 failure scenarios quarantined, each with an incident naming the 4 protected dashboards.
+
+## Tests
+
+```bash
+pytest
+```
+Unit tests cover the decision rules, robust baseline maths, every check and the lineage walk. They need no database.
 
 ## Data sources & licences
 
@@ -62,13 +133,14 @@ _Coming in Day 2–3: checks, scheduler, alerts, dashboard._
 
 | Tool | Licence |
 |---|---|
-| Exasol Personal | Exasol Personal licence |
+| Exasol Personal (+ Python 3.12 script language container) | Exasol Personal licence |
 | pyexasol | MIT |
 | pandas | BSD-3-Clause |
 | pyarrow | Apache-2.0 |
 | python-dotenv | BSD-3-Clause |
 | requests | Apache-2.0 |
+| pytest | MIT |
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
