@@ -22,7 +22,7 @@ the curated tables that dashboards read, or **quarantines** it and opens an inci
 |---|---|
 | Pipelines that fail overnight without warning | Learned-baseline checks on every batch; incidents opened automatically |
 | Dashboards the business no longer trusts | Bad batches are blocked before dashboards see them; a live 0–100 trust score per table |
-| Data requests that queue for weeks | *(planned)* plain-English questions answered with SQL on Exasol |
+| Data requests that queue for weeks | Incident reports explain problems in plain English; *(planned)* plain-English questions answered with SQL on Exasol |
 | Platform cost growing faster than usage | *(planned)* waste report from Exasol's own statistics |
 
 ### What makes it different
@@ -36,7 +36,13 @@ the curated tables that dashboards read, or **quarantines** it and opens an inci
 - **Blast radius from Exasol's dependency catalog** (`EXA_DBA_DEPENDENCIES`): every incident names
   the downstream views and dashboards (and owners) that were protected.
 - **Honest trust score.** Blocking bad data keeps dashboards correct but makes them fall behind;
-  the score says so (quality of the last published batch minus a staleness/backlog penalty).
+  the score says so (quality of the last published batch minus a staleness/missing-hours penalty).
+- **Plain-English incident reports (Gemini).** Gemini receives only aggregate evidence computed in
+  Exasol, never raw rows, and is *not told* which failure happened. In testing it identified
+  "dollars switched to cents" and "column dropped upstream" from the numbers alone. Reports are cached
+  (one call per incident), fall back across models, and degrade to a template report offline.
+- **Close the loop.** `retry` re-runs a blocked hour after the upstream fix and resolves the incident.
+- **Trust badge** any BI tool can embed as an image: `<img src="http://localhost:8765/badge.svg">`.
 
 ## Architecture
 
@@ -75,6 +81,7 @@ NYC TLC open data (Parquet)
    pip install -r requirements-dev.txt
    ```
 3. **Connection:** copy `.env.example` to `.env` and fill in host, port and password from `exasol info`.
+   Optionally add a free Gemini API key (<https://aistudio.google.com/apikey>) as `GEMINI_API_KEY`.
    Then check it:
    ```bash
    python scripts/test_connection.py
@@ -95,6 +102,14 @@ python -m trustlayer.cli replay --hours 24
 python -m trustlayer.cli run-batch --chaos duplicates    # inject a failure
 python -m trustlayer.cli status                          # trust score + recent batches
 python -m trustlayer.cli affected                        # downstream views and dashboards
+python -m trustlayer.cli report INC-...                  # plain-English incident report
+python -m trustlayer.cli retry INC-...                   # re-run the blocked hour, resolve if clean
+
+# Dashboard: trust score, Break-it controls, blast radius, incidents, timeline
+streamlit run app/dashboard.py
+
+# Embeddable badge
+python -m trustlayer.badge                               # http://localhost:8765/badge.svg
 ```
 
 ### Failure scenarios (`--chaos`)
@@ -115,6 +130,7 @@ python -m trustlayer.cli affected                        # downstream views and 
 - 96 consecutive real hourly batches: **0 false quarantines**. Warnings flagged a genuine upstream
   change: missing passenger counts rose from ~5% to 20–28% on some March 2024 evenings.
 - All 7 failure scenarios quarantined, each with an incident naming the 4 protected dashboards.
+- 12 checks on a ~5,000-row hourly batch run inside Exasol in ~0.4 s.
 
 ## Tests
 
@@ -139,7 +155,11 @@ Unit tests cover the decision rules, robust baseline maths, every check and the 
 | pyarrow | Apache-2.0 |
 | python-dotenv | BSD-3-Clause |
 | requests | Apache-2.0 |
+| streamlit (+ altair) | Apache-2.0 (BSD-3-Clause) |
+| google-genai (Gemini API, free tier) | Apache-2.0; API use under Google's Gemini API terms |
 | pytest | MIT |
+
+Gemini receives only aggregated check results and statistics, never trip-level rows.
 
 ## Licence
 

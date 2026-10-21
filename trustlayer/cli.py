@@ -2,7 +2,9 @@
 
     python -m trustlayer.cli setup [--reset]
     python -m trustlayer.cli backfill            # publish Jan-Feb 2024 history and learn baselines
-    python -m trustlayer.cli run-batch [--chaos duplicates] [--hour "2024-03-04 09:00"]
+    python -m trustlayer.cli run-batch [--chaos duplicates] [--hour "2024-03-04 09:00"] [--report]
+    python -m trustlayer.cli report INC-...       # plain-English incident report
+    python -m trustlayer.cli retry INC-...        # re-run the blocked hour, resolve if clean
     python -m trustlayer.cli replay --hours 24
     python -m trustlayer.cli status
     python -m trustlayer.cli affected CURATED.YELLOW_TRIPS
@@ -12,7 +14,7 @@ import json
 import time
 from datetime import datetime
 
-from trustlayer import baseline, chaos, lineage, pipeline
+from trustlayer import baseline, chaos, lineage, pipeline, report
 from trustlayer.db import connect
 from trustlayer.schema import TRIPS, create_all
 
@@ -49,7 +51,22 @@ def cmd_backfill(conn, args):
 
 def cmd_run_batch(conn, args):
     hour = datetime.fromisoformat(args.hour) if args.hour else None
-    print_outcome(pipeline.run_batch(conn, hour, args.chaos))
+    outcome = pipeline.run_batch(conn, hour, args.chaos)
+    print_outcome(outcome)
+    if outcome.incident_id and args.report:
+        text, source = report.generate(conn, outcome.incident_id)
+        print(f"\n--- incident report ({source}) ---\n{text}")
+
+
+def cmd_report(conn, args):
+    text, source = report.generate(conn, args.incident, force=args.force)
+    print(f"--- {args.incident} ({source}) ---\n{text}")
+
+
+def cmd_retry(conn, args):
+    outcome = pipeline.retry(conn, args.incident)
+    print_outcome(outcome)
+    print(f"\n{args.incident} {'resolved' if outcome.status == 'PROMOTED' else 'still open'}")
 
 
 def cmd_replay(conn, args):
@@ -89,6 +106,12 @@ def main() -> None:
     p = sub.add_parser("run-batch")
     p.add_argument("--hour", help='batch hour, e.g. "2024-03-04 09:00"; default: next hour')
     p.add_argument("--chaos", choices=sorted(chaos.SCENARIOS))
+    p.add_argument("--report", action="store_true", help="write an incident report if the batch is blocked")
+    p = sub.add_parser("report", help="incident report (Gemini, cached)")
+    p.add_argument("incident")
+    p.add_argument("--force", action="store_true", help="regenerate even if cached")
+    p = sub.add_parser("retry", help="re-run a blocked hour from source and resolve its incident")
+    p.add_argument("incident")
     p = sub.add_parser("replay")
     p.add_argument("--hours", type=int, default=24)
     sub.add_parser("status")

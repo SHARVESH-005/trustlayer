@@ -10,19 +10,21 @@ FROM TRUSTLAYER.CHECK_RESULTS
 GROUP BY BATCH_ID, TABLE_NAME;
 
 -- Trust in what dashboards see right now: quality of the last published batch,
--- minus penalties when publishing has stalled (wall-clock SLA) or fallen behind
--- (batches blocked since the last publish mean the newest hours are missing).
+-- minus penalties when publishing has stalled (wall-clock SLA) or hours are missing
+-- (blocked batches that have not been successfully re-run yet).
 CREATE OR REPLACE VIEW TRUSTLAYER.TRUST_SCORES AS
 WITH last_promoted AS (
     SELECT TABLE_NAME, BATCH_ID, BATCH_START, FINISHED_AT,
            ROW_NUMBER() OVER (PARTITION BY TABLE_NAME ORDER BY FINISHED_AT DESC) AS RN
     FROM TRUSTLAYER.LOAD_LOG
     WHERE STATUS = 'PROMOTED'
-), blocked_batches AS (
-    SELECT l.TABLE_NAME, COUNT(*) AS BLOCKED_SINCE_PUBLISH
+), missing_batches AS (
+    SELECT l.TABLE_NAME, COUNT(DISTINCT l.BATCH_START) AS MISSING_HOURS
     FROM TRUSTLAYER.LOAD_LOG l
-    JOIN last_promoted p ON p.TABLE_NAME = l.TABLE_NAME AND p.RN = 1
-    WHERE l.STATUS IN ('QUARANTINED', 'FAILED') AND l.BATCH_START > p.BATCH_START
+    WHERE l.STATUS IN ('QUARANTINED', 'FAILED')
+      AND NOT EXISTS (SELECT 1 FROM TRUSTLAYER.LOAD_LOG ok
+                      WHERE ok.TABLE_NAME = l.TABLE_NAME AND ok.BATCH_START = l.BATCH_START
+                        AND ok.STATUS = 'PROMOTED')
     GROUP BY l.TABLE_NAME
 ), open_incidents AS (
     SELECT TABLE_NAME, COUNT(*) AS OPEN_INCIDENTS
@@ -37,19 +39,19 @@ WITH last_promoted AS (
            MINUTES_BETWEEN(CURRENT_TIMESTAMP, p.FINISHED_AT) AS MINUTES_SINCE_PROMOTION,
            NVL(h.HEALTH_SCORE, 100) AS QUALITY_SCORE,
            NVL(o.OPEN_INCIDENTS, 0) AS OPEN_INCIDENTS,
-           NVL(b.BLOCKED_SINCE_PUBLISH, 0) AS BLOCKED_SINCE_PUBLISH
+           NVL(m.MISSING_HOURS, 0) AS MISSING_HOURS
     FROM TRUSTLAYER.TABLE_CONFIG c
     LEFT JOIN last_promoted p ON p.TABLE_NAME = c.TABLE_NAME AND p.RN = 1
     LEFT JOIN TRUSTLAYER.BATCH_HEALTH h ON h.BATCH_ID = p.BATCH_ID
     LEFT JOIN open_incidents o ON o.TABLE_NAME = c.TABLE_NAME
-    LEFT JOIN blocked_batches b ON b.TABLE_NAME = c.TABLE_NAME
+    LEFT JOIN missing_batches m ON m.TABLE_NAME = c.TABLE_NAME
 ), penalised AS (
     SELECT s.*,
            CASE WHEN LAST_PROMOTED_AT IS NULL THEN 60
                 WHEN MINUTES_SINCE_PROMOTION > 3 * FRESHNESS_SLA_MINUTES THEN 60
                 WHEN MINUTES_SINCE_PROMOTION > FRESHNESS_SLA_MINUTES THEN 30
                 ELSE 0 END AS FRESHNESS_PENALTY,
-           LEAST(40, 10 * BLOCKED_SINCE_PUBLISH) AS BACKLOG_PENALTY
+           LEAST(40, 10 * MISSING_HOURS) AS BACKLOG_PENALTY
     FROM scored s
 )
 SELECT p.*,

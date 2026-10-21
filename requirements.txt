@@ -3,3 +3,5 @@ pandas>=2.2
 pyarrow>=17
 python-dotenv>=1.0
 requests>=2.32
+google-genai>=1.0
+streamlit>=1.40

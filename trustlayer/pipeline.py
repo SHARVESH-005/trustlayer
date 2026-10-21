@@ -1,5 +1,6 @@
 """The quarantine gate: every batch lands in STAGE, is checked inside Exasol, and is
 then either published to CURATED or held in QUARANTINE. Dashboards only read CURATED."""
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -23,6 +24,7 @@ class BatchOutcome:
     results: list = field(default_factory=list)
     incident_id: str | None = None
     affected: dict | None = None
+    check_seconds: float = 0.0
 
 
 def backfill(conn, start: str = "2024-01-01", end: str = "2024-03-04") -> int:
@@ -80,9 +82,11 @@ def run_batch(conn, batch_start: datetime | None = None, scenario: str | None = 
             chaos.inject(conn, batch_id, scenario)
 
         # 2. Check it against the learned baseline.
+        t0 = time.perf_counter()
         prof = checks.profile_batch(conn, batch_id)
         base = baseline.load(conn)
         results = checks.evaluate(prof, base, batch_start, baseline.volume_level(conn, base))
+        check_seconds = time.perf_counter() - t0
         checked_at = _db_now(conn)
         conn.import_from_iterable(
             [(batch_id, TRIPS, r.check, r.column, r.status, r.observed, r.expected, r.details[:2000], checked_at)
@@ -100,7 +104,8 @@ def run_batch(conn, batch_start: datetime | None = None, scenario: str | None = 
     # 3. Gate: publish or quarantine, atomically.
     failed = [r for r in results if r.status == rules.FAIL]
     rows = int(prof["ROW_COUNT"] or 0)
-    outcome = BatchOutcome(batch_id, batch_start, "QUARANTINED" if failed else "PROMOTED", rows, scenario, results)
+    outcome = BatchOutcome(batch_id, batch_start, "QUARANTINED" if failed else "PROMOTED", rows, scenario, results,
+                           check_seconds=check_seconds)
     reason = "; ".join(f"{r.check}{'(' + r.column + ')' if r.column else ''}: {r.details}" for r in failed)
     conn.set_autocommit(False)
     try:
@@ -139,4 +144,20 @@ def run_batch(conn, batch_start: datetime | None = None, scenario: str | None = 
 
     if failed:
         outcome.affected = lineage.affected(conn, TRIPS)
+    return outcome
+
+
+def retry(conn, incident_id: str) -> BatchOutcome:
+    """Re-run the blocked hour from source once upstream is fixed; resolve the incident if it passes."""
+    hour = conn.execute("""
+        SELECT l.BATCH_START FROM TRUSTLAYER.INCIDENTS i
+        JOIN TRUSTLAYER.LOAD_LOG l ON l.BATCH_ID = i.BATCH_ID
+        WHERE i.INCIDENT_ID = {i}""", {"i": incident_id}).fetchval()
+    if hour is None:
+        raise ValueError(f"unknown incident {incident_id}")
+    outcome = run_batch(conn, datetime.fromisoformat(str(hour)[:19]))
+    if outcome.status == "PROMOTED":
+        conn.execute("""
+            UPDATE TRUSTLAYER.INCIDENTS SET STATUS = 'RESOLVED', RESOLVED_AT = CURRENT_TIMESTAMP
+            WHERE INCIDENT_ID = {i}""", {"i": incident_id})
     return outcome
