@@ -17,6 +17,7 @@ from trustlayer.schema import TRIPS, create_all  # noqa: E402
 st.set_page_config(page_title="TrustLayer", page_icon="🛡️", layout="wide")
 
 GREEN, AMBER, RED, BLUE, MUTED = "#2FBF71", "#F2A33A", "#F25C54", "#4C8DFF", "#8FA0BA"
+VIOLET = "#A78BFA"
 
 CSS = """
 <style>
@@ -220,11 +221,18 @@ for d in impact["dashboards"]:
     via = " via DAILY_REVENUE" if depth.get(d["view"], 1) > 1 else ""
     cards.append(f"""<div class='tl-dcard'><div><div class='n'>{esc(d['dashboard'])}</div>
 <div class='o'>{esc(d['owner'])} · {esc(d['view'])}{via}</div></div>{pill}</div>""")
+n_checks = query("""SELECT COUNT(*) AS N FROM TRUSTLAYER.CHECK_RESULTS c
+                    JOIN TRUSTLAYER.LOAD_LOG l ON l.BATCH_ID = c.BATCH_ID
+                    WHERE l.STARTED_AT = (SELECT MAX(l2.STARTED_AT) FROM TRUSTLAYER.LOAD_LOG l2
+                                          JOIN TRUSTLAYER.CHECK_RESULTS c2 ON c2.BATCH_ID = l2.BATCH_ID
+                                          WHERE l2.TABLE_NAME = {t})
+                      AND l.TABLE_NAME = {t}""", {"t": TRIPS}).N[0]
+checks_label = f"{int(n_checks)} checks" if n_checks else "Checks"
 quar_border, quar_bg = (RED, "#2A1418") if open_incidents else ("#22304A", "#121B2E")
 show(f"""<div class='tl-flow'>
 <div class='tl-node'><div class='name'>STAGE</div><div class='desc'>hourly batch lands here first</div></div>
 <div class='tl-arrow'>→</div>
-<div class='tl-node exa'><div class='name'>12 checks · Exasol</div>
+<div class='tl-node exa'><div class='name'>{checks_label} · Exasol</div>
 <div class='desc'>volume, distribution, completeness, schema drift, uniqueness, validity</div></div>
 <div class='tl-arrow' style='color:{GREEN}'>→</div>
 <div class='tl-node cur'><div class='name'>CURATED</div><div class='desc'>only checked data; marts read this</div></div>
@@ -289,6 +297,12 @@ if not batches.empty:
     batches["EXPECTED"] = batches.EXPECTED.astype(float)
     batches["Status"] = batches.STATUS.map({"PROMOTED": "Published", "QUARANTINED": "Quarantined",
                                             "FAILED": "Failed"}).fillna(batches.STATUS)
+    # a retried hour has one row per attempt: keep the latest bar, and say what happened before it
+    history = (batches.iloc[::-1].groupby("BATCH_START").Status
+               .agg(lambda s: " → ".join(s)).rename("History"))
+    batches = batches.drop_duplicates("BATCH_START").join(history, on="BATCH_START")
+    retried = batches.History.str.contains("→")
+    batches.loc[retried & (batches.STATUS == "PROMOTED"), "Status"] = "Published after retry"
     hour = alt.X("yearmonthdatehours(BATCH_START):T", title=None,  # time unit: bars fill their hour
                  axis=alt.Axis(format="%H:00", labelAngle=0, labelOverlap=True))
     bars = alt.Chart(batches).mark_bar(opacity=0.9, cornerRadiusTopLeft=3, cornerRadiusTopRight=3,
@@ -296,22 +310,27 @@ if not batches.empty:
         x=hour,
         y=alt.Y("ROW_COUNT:Q", title="Trips per hour"),
         color=alt.Color("Status:N", title=None,
-                        scale=alt.Scale(domain=["Published", "Quarantined", "Failed"], range=[GREEN, RED, MUTED]),
+                        scale=alt.Scale(domain=["Published", "Published after retry", "Quarantined", "Failed"],
+                                        range=[GREEN, VIOLET, RED, MUTED]),
                         legend=alt.Legend(orient="top", direction="horizontal")),
         tooltip=[alt.Tooltip("BATCH_START:T", title="Hour", format="%d %b %H:00"), "Status",
+                 alt.Tooltip("History:N", title="Attempts"),
                  alt.Tooltip("ROW_COUNT:Q", title="Rows", format=","),
                  alt.Tooltip("EXPECTED:Q", title="Expected", format=",.0f"),
                  alt.Tooltip("HEALTH_SCORE:Q", title="Health"), alt.Tooltip("CHAOS:N", title="Injected")],
     )
     expected = alt.Chart(batches).mark_line(color=BLUE, strokeDash=[5, 4], strokeWidth=2).encode(
         x=alt.X("yearmonthdatehours(BATCH_START):T", bandPosition=0.5), y="EXPECTED:Q")
-    chart = (bars + expected).properties(height=280).configure(background="transparent").configure_view(
+    retry_marks = alt.Chart(batches[retried]).mark_text(text="↻ retried", dy=-10, fontSize=11, font="Inter",
+                                                        color=VIOLET).encode(
+        x=alt.X("yearmonthdatehours(BATCH_START):T", bandPosition=0.5), y="ROW_COUNT:Q")
+    chart = (bars + expected + retry_marks).properties(height=280).configure(background="transparent").configure_view(
         strokeWidth=0).configure_axis(labelColor=MUTED, titleColor=MUTED, gridColor="#1E2A40",
                                       domainColor="#22304A", tickColor="#22304A", labelFont="Inter",
                                       titleFont="Inter").configure_legend(labelColor="#B4C0D3", labelFont="Inter")
     st.altair_chart(chart, width="stretch")
     show("<div class='tl-foot'>Dashed line: expected trips from the baseline learned inside Exasol, "
-         "scaled to current traffic.</div>")
+         "scaled to current traffic. A retried hour shows its latest attempt; hover for the full history.</div>")
 
 # ---------- exasol facts ----------
 st.write("")
