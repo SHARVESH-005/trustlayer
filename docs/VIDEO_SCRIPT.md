@@ -6,13 +6,16 @@ Total target: **2:50** (leave 10 s of slack under the 3:00 limit).
 ## Before you record
 
 - [ ] Exasol running: `exasol status` in WSL shows `database_ready`
-- [ ] `python demo.py --hours 12` (prepares a clean state and opens the dashboard)
+- [ ] `python demo.py --hours 12` (prepares a clean state and opens the dashboard); record within
+  2 hours of this, because the trust score loses 30 points once nothing has been published for 2 hours
 - [ ] Browser full screen at 1440x900 or larger, zoom 100%, dark or light theme (pick one)
 - [ ] In the sidebar, pre-select **unit_change** under *Break it* (Gemini's best diagnosis)
 - [ ] Second tab: <http://localhost:8765/badge.svg> (start `python -m trustlayer.badge` first)
 - [ ] Third tab: a terminal with `exasol info` already run (shows this is Exasol Personal)
 - [ ] Close notifications; hide the `.env` file and anything showing passwords or keys
-- [ ] Do one dry run: Gemini sometimes takes 5-10 s, so practise talking over the spinner
+- [ ] Do one dry run: a Gemini report can take 30-40 s, so keep talking over the spinner and cut the wait
+  when editing
+- [ ] Load the dashboard once before recording (the first load takes about 10 s)
 - [ ] Record with OBS or the Windows Game Bar (Win+G); 1080p; microphone close to you
 
 ## Script
@@ -21,7 +24,7 @@ Total target: **2:50** (leave 10 s of slack under the 3:00 limit).
 |---|---|---|
 | 0:00-0:15 | Dashboard top: trust score **100** | "Every data team knows this moment: the CFO opens a dashboard on Monday, the numbers are wrong, and nobody knows since when. Pipelines fail quietly at 2 AM and dashboards show the damage." |
 | 0:15-0:35 | Scroll to blast radius graph | "TrustLayer puts a gate in front of the dashboards. Every hourly batch lands in staging, gets checked inside Exasol Personal, and only then is published. These four dashboards, with their owners, come straight from Exasol's own dependency catalog." |
-| 0:35-0:50 | Click **Run next hour** → green banner | "Here's a normal hour: five thousand trips, twelve checks, run inside Exasol in under half a second. Published." |
+| 0:35-0:50 | Click **Run next hour** → green banner | "Here's a normal hour: five thousand trips, twelve checks, computed inside Exasol in about a second. Published." |
 | 0:50-1:00 | Point at the timeline's dashed line | "The checks don't use fixed thresholds. A Python function running inside Exasol learns what each hour of the week normally looks like, and adapts as traffic grows." |
 | 1:00-1:25 | Sidebar: **unit_change** → **Inject into next hour** → red banner | "Now let's break it. Upstream switches amounts from dollars to cents, a classic silent failure. The batch is quarantined. The average fare jumped from twenty-six dollars to over two thousand." |
 | 1:25-1:45 | Point at trust score drop, amber dashboards | "The trust score drops, because the dashboards are now an hour behind. But they are not wrong: the CFO still sees correct numbers." |

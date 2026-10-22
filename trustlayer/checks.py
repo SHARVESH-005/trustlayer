@@ -68,7 +68,8 @@ def evaluate(prof: dict, base: dict, batch_hour, level: float = 1.0) -> list[Che
     status, z = rules.classify_deviation(avg_total, center, scale, min_rel=min_rel)
     results.append(CheckResult(
         "distribution", "TOTAL_AMOUNT", status, avg_total, center,
-        f"average total ${avg_total:,.2f} vs usual ${center:,.2f} (z={z:+.1f})" if center else "no baseline",
+        "no amounts to average (completeness reports it)" if avg_total is None
+        else f"average total ${avg_total:,.2f} vs usual ${center:,.2f} (z={z:+.1f})" if center else "no baseline",
     ))
 
     for col in NULL_CHECK_COLUMNS:

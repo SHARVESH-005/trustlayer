@@ -116,6 +116,8 @@ pytest          # unit tests, no database needed; also run by GitHub Actions on 
 | `malloc ... failed` while loading | low memory; the loader already streams 500k-row chunks, so close other apps or raise the WSL memory limit in `%UserProfile%\.wslconfig` (`[wsl2]` `memory=6GB`) |
 | `Python UDF unavailable, using SQL fallback` | `exasol slc install PYTHON3`; TrustLayer still works with SQL baselines without it |
 | `Gemini unavailable ... used template report` | missing key, quota or a busy model; reports fall back to a template and the pipeline is unaffected |
+| Dashboard says "Cannot reach Exasol" | the database stopped or stalled; `exasol start` in WSL, then reload the page (it reconnects by itself) |
+| Trust score drops to 70 with nothing broken | nothing was published for over 2 hours (the demo's freshness limit); run the next hour or re-run `python demo.py` |
 | Port 8563 already in use | `exasol config set --ports db:<free-port>` and update `EXASOL_PORT` |
 
 ## Stopping and cleaning up

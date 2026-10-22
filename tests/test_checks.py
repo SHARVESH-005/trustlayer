@@ -61,6 +61,11 @@ def test_dropped_column_is_schema_drift():
     assert ("schema_drift", "TIP_AMOUNT") in failed(results)
 
 
+def test_dropped_amount_column_is_quarantined_not_crashed():
+    results = evaluate(profile(avg=None, nulls={"NULLS:TOTAL_AMOUNT": 4000}), BASE, HOUR)
+    assert ("schema_drift", "TOTAL_AMOUNT") in failed(results)
+
+
 def test_cents_instead_of_dollars_fails_distribution():
     assert ("distribution", "TOTAL_AMOUNT") in failed(evaluate(profile(avg=2700.0), BASE, HOUR))
 

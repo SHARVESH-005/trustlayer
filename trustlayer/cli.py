@@ -64,7 +64,11 @@ def cmd_report(conn, args):
 
 
 def cmd_retry(conn, args):
-    outcome = pipeline.retry(conn, args.incident)
+    try:
+        outcome = pipeline.retry(conn, args.incident)
+    except ValueError as exc:
+        print(f"Not retried: {exc}")
+        return
     print_outcome(outcome)
     print(f"\n{args.incident} {'resolved' if outcome.status == 'PROMOTED' else 'still open'}")
 

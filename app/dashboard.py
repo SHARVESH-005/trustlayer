@@ -77,6 +77,21 @@ def conn():
     return connect()
 
 
+def ensure_connection() -> None:
+    """Once per rerun: reopen the shared connection if Exasol restarted underneath it."""
+    try:
+        conn().execute("SELECT 1")
+        return
+    except Exception:  # noqa: BLE001 - dead socket after a restart, or no connection yet
+        conn.clear()
+    try:
+        conn()
+    except Exception as exc:  # noqa: BLE001 - database down: say how to fix it instead of a traceback
+        st.error(f"Cannot reach Exasol ({type(exc).__name__}: {' '.join(str(exc).split())[:160]})\n\n"
+                 "Start it in WSL with `exasol start`, then reload this page.")
+        st.stop()
+
+
 def query(sql: str, params: dict | None = None) -> pd.DataFrame:
     stmt = conn().execute(sql, params)
     return pd.DataFrame(stmt.fetchall(), columns=stmt.column_names())
@@ -112,6 +127,7 @@ fill="#E6EAF2">{score:.0f}</text></svg>"""
 
 
 show(CSS)
+ensure_connection()
 
 # ---------- sidebar: drive the pipeline ----------
 with st.sidebar:
@@ -148,7 +164,7 @@ with st.sidebar:
 
 # ---------- header ----------
 show("""<div class='tl-brand'><div class='tl-logo'>🛡️</div><h1>TrustLayer</h1></div>
-<p class='tl-tag'>Stops broken data before it reaches a dashboard. Every check runs inside <b>Exasol Personal</b>.</p>""")
+<p class='tl-tag'>Stops broken data before it reaches a dashboard. Every check is computed inside <b>Exasol Personal</b>.</p>""")
 
 trust = query("SELECT * FROM TRUSTLAYER.TRUST_SCORES WHERE TABLE_NAME = {t}", {"t": TRIPS})
 if trust.empty:

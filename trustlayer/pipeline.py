@@ -149,15 +149,22 @@ def run_batch(conn, batch_start: datetime | None = None, scenario: str | None = 
 
 def retry(conn, incident_id: str) -> BatchOutcome:
     """Re-run the blocked hour from source once upstream is fixed; resolve the incident if it passes."""
-    hour = conn.execute("""
-        SELECT l.BATCH_START FROM TRUSTLAYER.INCIDENTS i
+    row = conn.execute("""
+        SELECT l.BATCH_START, i.STATUS FROM TRUSTLAYER.INCIDENTS i
         JOIN TRUSTLAYER.LOAD_LOG l ON l.BATCH_ID = i.BATCH_ID
-        WHERE i.INCIDENT_ID = {i}""", {"i": incident_id}).fetchval()
-    if hour is None:
+        WHERE i.INCIDENT_ID = {i}""", {"i": incident_id}).fetchone()
+    if row is None:
         raise ValueError(f"unknown incident {incident_id}")
+    hour, status = row
+    # Re-running an hour that is already published would put its rows in CURATED twice.
+    if status != "OPEN":
+        raise ValueError(f"{incident_id} is {status.lower()}; its hour is already published")
     outcome = run_batch(conn, datetime.fromisoformat(str(hour)[:19]))
     if outcome.status == "PROMOTED":
+        # Resolve every open incident for this hour, including ones from earlier failed retries.
         conn.execute("""
             UPDATE TRUSTLAYER.INCIDENTS SET STATUS = 'RESOLVED', RESOLVED_AT = CURRENT_TIMESTAMP
-            WHERE INCIDENT_ID = {i}""", {"i": incident_id})
+            WHERE STATUS = 'OPEN' AND TABLE_NAME = {t} AND BATCH_ID IN (
+                SELECT BATCH_ID FROM TRUSTLAYER.LOAD_LOG WHERE TABLE_NAME = {t} AND BATCH_START = {h})""",
+            {"t": TRIPS, "h": str(hour)[:19]})
     return outcome

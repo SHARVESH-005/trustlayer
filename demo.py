@@ -45,7 +45,7 @@ def main() -> int:
     try:
         conn = connect()
     except Exception as exc:  # noqa: BLE001 - explain the usual fix instead of a traceback
-        print(f"   cannot connect: {str(exc).strip().splitlines()[0]}")
+        print(f"   cannot connect: {type(exc).__name__}: {' '.join(str(exc).split())[:160]}")
         print("   Start Exasol (`exasol start` in WSL/Linux) and check .env against `exasol info`.")
         return 1
     version = conn.execute(

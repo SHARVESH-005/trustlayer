@@ -1,7 +1,7 @@
 # TrustLayer
 
 **Stop broken data before it reaches a dashboard, show exactly who would have been
-affected, and explain it in plain English: with every check running inside Exasol.**
+affected, and explain it in plain English: with every number behind the checks computed inside Exasol.**
 
 Built on **Exasol Personal** for ExaThon India 2026, Track 04: *The Work Behind the Work*.
 
@@ -136,11 +136,12 @@ python -m trustlayer.badge                               # http://localhost:8765
 
 ## Results so far (Exasol Personal on a laptop, 3.7 GB WSL)
 
-- 9.55M rows landed; 6.3M rows of history published in ~40 s; baselines learned by the UDF in ~10 s.
+- 9.55M rows landed; 6.3M rows of history published in ~40 s; baselines learned by the UDF in ~20 s.
 - 96 consecutive real hourly batches: **0 false quarantines**. Warnings flagged a genuine upstream
   change: missing passenger counts rose from ~5% to 20–28% on some March 2024 evenings.
 - All 7 failure scenarios quarantined, each with an incident naming the 4 protected dashboards.
-- 12 checks on a ~5,000-row hourly batch run inside Exasol in ~0.4 s.
+- 12 checks on a ~5,000-row hourly batch: profiled inside Exasol and decided in about 1 s
+  (0.7–2.2 s measured on 22 Oct 2026).
 
 ## Tests
 
