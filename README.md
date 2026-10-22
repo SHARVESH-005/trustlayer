@@ -145,7 +145,9 @@ python -m trustlayer.badge                               # http://localhost:8765
 ## Tests
 
 ```bash
-pytest
+pytest                    # unit tests, no database
+python scripts/audit.py   # live audit: recomputes the dashboard's numbers and proves
+                          # no quarantined row ever reached CURATED or the marts
 ```
 Unit tests cover the decision rules, robust baseline maths, every check and the lineage walk. They need no database.
 
