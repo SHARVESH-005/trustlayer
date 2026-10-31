@@ -5,6 +5,8 @@ affected, and explain it in plain English: with every number behind the checks c
 
 Built on **Exasol Personal** for ExaThon India 2026, Track 04: *The Work Behind the Work*.
 
+**▶ Demo video (3 min): [watch on Google Drive](https://drive.google.com/file/d/1jq418taaIgYy1iH6eiUizuk2tfvY58SU/view?usp=sharing)** · Pitch deck: [docs/TrustLayer-pitch.pdf](docs/TrustLayer-pitch.pdf)
+
 ## Problem
 
 Data teams usually learn a pipeline failed overnight when a business user complains
@@ -95,7 +97,7 @@ python demo.py --break unit_change  # same, plus one injected failure with its i
 ```
 
 Full install, run guide and troubleshooting: **[DEPLOY.md](DEPLOY.md)**.
-Demo video script: [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md).
+Demo video: [Google Drive](https://drive.google.com/file/d/1jq418taaIgYy1iH6eiUizuk2tfvY58SU/view?usp=sharing) · script: [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md).
 
 ## Usage
 
